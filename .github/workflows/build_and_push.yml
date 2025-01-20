@@ -1,45 +1,75 @@
-name: Build and Push Docker Image on New Release
+name: Docker Release Builder
 
 on:
   schedule:
-    # 每 6 小时检查一次（使用 cron 表达式）
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
+  workflow_dispatch:  # 支持手动触发工作流
 
 jobs:
-  check-release:
+  check-release-and-build:
     runs-on: ubuntu-latest
 
     steps:
-    # 检查最新的 release
-    - name: Get latest release tag from another repository
-      id: release
-      run: |
-        # 使用 GitHub API 获取另一个仓库的最新 release 标签
-        RELEASE_TAG=$(curl -s https://api.github.com/repos/innei/Shiro/releases/latest | jq -r .tag_name)
-        
-        # 存储最新 release 标签
-        echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+      # 第一步：检查是否有新的 release
+      - name: Check for new release
+        id: release_check
+        run: |
+          # 获取原项目的最新 release
+          latest_release=$(curl -s https://api.github.com/repos/<original_owner>/<original_repo>/releases/latest)
+          release_tag=$(echo "$latest_release" | jq -r .tag_name)
+          
+          echo "Latest release: $release_tag"
+          
+          # 如果获取到新的 release，则继续构建镜像
+          echo "RELEASE_TAG=$release_tag" >> $GITHUB_ENV
 
-    # 比较当前 Release 和上次构建时的 Release
-    - name: Compare with previous release
-      run: |
-        if [ "$RELEASE_TAG" != "$(cat release_tag.txt)" ]; then
-          echo "New release detected. Proceeding with Docker build..."
-          echo $RELEASE_TAG > release_tag.txt
-          
-          # 拉取对应版本的代码
-          git clone --branch $RELEASE_TAG https://github.com/innei/Shiro.git
-          cd Shiro
-          
-          # 构建 Docker 镜像
-          docker build -t ${{ secrets.IMAGE_USERNAME }}/shiro:${RELEASE_TAG} .
-          
-          # 登录到 Docker Hub
-          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
-          
-          # 推送 Docker 镜像
-          docker push ${{ secrets.IMAGE_USERNAME }}/shiro:${RELEASE_TAG}
-        else
-          echo "No new release detected. Skipping Docker build."
-        fi
+      # 第二步：检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 第三步：设置 QEMU 和 Docker Buildx
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 第四步：登录到 Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 第五步：获取最新 release 的代码
+      - name: Checkout release version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      # 第六步：Docker 元数据处理
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shiro
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=latest
+
+      # 第七步：构建 Docker 镜像并推送
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
