@@ -1,0 +1,44 @@
+name: Build and Push Docker Image on New Release
+
+on:
+  schedule:
+    # 每 6 小时检查一次（使用 cron 表达式）
+    - cron: '0 */6 * * *'
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 检查最新的 release
+    - name: Get latest release tag from another repository
+      id: release
+      run: |
+        # 使用 GitHub API 获取另一个仓库的最新 release 标签
+        RELEASE_TAG=$(curl -s https://api.github.com/repos/innei/Shiro/releases/latest | jq -r .tag_name)
+        
+        # 存储最新 release 标签
+        echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+
+    # 比较当前 Release 和上次构建时的 Release
+    - name: Compare with previous release
+      run: |
+        if [ "$RELEASE_TAG" != "$(cat release_tag.txt)" ]; then
+          echo "New release detected. Proceeding with Docker build..."
+          echo $RELEASE_TAG > release_tag.txt
+          
+          # 拉取对应版本的代码
+          git clone --branch $RELEASE_TAG https://github.com/innei/Shiro.git
+          cd Shiro
+          
+          # 构建 Docker 镜像
+          docker build -t ${{ secrets.IMAGE_USERNAME }}/shiro:${RELEASE_TAG} .
+          
+          # 登录到 Docker Hub
+          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+          
+          # 推送 Docker 镜像
+          docker push ${{ secrets.IMAGE_USERNAME }}/shiro:${RELEASE_TAG}
+        else
+          echo "No new release detected. Skipping Docker build."
+        fi
