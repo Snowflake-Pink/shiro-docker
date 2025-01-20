@@ -88,7 +88,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            your-dockerhub-username/shiro  # 替换为您的Docker Hub用户名
+            ${{ secrets.DOCKERHUB_USERNAME }}/shiro  # 替换为您的Docker Hub用户名
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
