@@ -15,7 +15,7 @@ jobs:
         id: release_check
         run: |
           # 获取原项目的最新 release
-          latest_release=$(curl -s https://api.github.com/repos/<original_owner>/<original_repo>/releases/latest)
+          latest_release=$(curl -s https://api.github.com/repos/Innei/Shiro/releases/latest)
           release_tag=$(echo "$latest_release" | jq -r .tag_name)
           
           echo "Latest release: $release_tag"
